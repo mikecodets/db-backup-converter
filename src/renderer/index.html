@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DB Backup Converter</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-6 py-8 max-w-4xl">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">DB Backup Converter</h1>
+            <p class="text-gray-600">Converta arquivos .bak para CSV ou XLSX com facilidade</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="bg-white rounded-lg shadow-lg p-8">
+            <!-- File Selection -->
+            <section id="file-section" class="mb-8">
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-primary transition-colors">
+                    <div class="mb-4">
+                        <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-medium text-gray-900 mb-2">Selecionar arquivo .bak</h3>
+                    <p class="text-gray-500 mb-4">Clique para escolher o arquivo de backup do banco de dados</p>
+                    <button id="select-file" class="bg-primary text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                        Escolher Arquivo
+                    </button>
+                    <div id="file-info" class="hidden mt-4 p-4 bg-gray-50 rounded-lg">
+                        <p class="text-sm text-gray-700">
+                            <span class="font-medium">Arquivo selecionado:</span>
+                            <span id="file-name" class="text-gray-900"></span>
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Conversion Section -->
+            <section id="conversion-section" class="hidden mb-8">
+                <div class="text-center">
+                    <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-6">
+                        <p class="text-sm text-blue-800">
+                            <span class="font-medium">Formato:</span> XLSX (Excel) - Arquivos separados por tabela
+                        </p>
+                    </div>
+                    
+                    <button id="start-conversion" class="w-full bg-success text-white py-3 px-6 rounded-lg hover:bg-green-600 transition-colors font-medium text-lg">
+                        Converter para XLSX
+                    </button>
+                </div>
+            </section>
+
+            <!-- Progress Section -->
+            <section id="progress-section" class="hidden">
+                <h3 class="text-lg font-medium text-gray-900 mb-4">Progresso da Conversão</h3>
+                
+                <div class="mb-4">
+                    <div class="flex justify-between text-sm text-gray-700 mb-2">
+                        <span id="progress-text">Inicializando...</span>
+                        <span id="progress-percentage">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3">
+                        <div id="progress-bar" class="bg-primary h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div id="progress-details" class="text-sm text-gray-600">
+                    <p>Tabela atual: <span id="current-table">-</span></p>
+                    <p>Tabelas processadas: <span id="tables-processed">0</span> de <span id="total-tables">0</span></p>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section id="results-section" class="hidden">
+                <div id="success-result" class="hidden p-4 bg-success bg-opacity-10 border border-success rounded-lg">
+                    <div class="flex items-center">
+                        <svg class="h-5 w-5 text-success mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span class="text-success font-medium">Conversão concluída com sucesso!</span>
+                    </div>
+                    <div class="mt-4 flex gap-4">
+                        <button id="open-folder" class="bg-primary text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                            Abrir Pasta
+                        </button>
+                        <button id="convert-another" class="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors">
+                            Converter Outro Arquivo
+                        </button>
+                    </div>
+                </div>
+
+                <div id="error-result" class="hidden p-4 bg-error bg-opacity-10 border border-error rounded-lg">
+                    <div class="flex items-center">
+                        <svg class="h-5 w-5 text-error mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span class="text-error font-medium">Erro durante a conversão</span>
+                    </div>
+                    <p id="error-message" class="mt-2 text-gray-700"></p>
+                    <button id="retry-conversion" class="mt-4 bg-error text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors">
+                        Tentar Novamente
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html> 

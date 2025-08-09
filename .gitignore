@@ -1,0 +1,43 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Build/output
+/dist/
+/dist-electron/
+/build/
+/out/
+/release/
+/coverage/
+/.cache/
+
+# App outputs
+/exports/
+*.zip
+*.7z
+*.tar
+*.gz
+*.tmp
+
+# Backups e arquivos grandes de teste
+*.bak
+
+# Ambiente
+.env
+.env.*
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Electron
+*.dmg
+*.exe
+*.deb
+*.AppImage
+*.snap 
