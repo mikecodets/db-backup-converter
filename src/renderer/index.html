@@ -9,9 +9,21 @@
 <body class="bg-gray-50 min-h-screen">
     <div class="container mx-auto px-6 py-8 max-w-4xl">
         <!-- Header -->
-        <header class="text-center mb-8">
-            <h1 class="text-3xl font-bold text-gray-800 mb-2">DB Backup Converter</h1>
-            <p class="text-gray-600">Converta arquivos .bak para CSV ou XLSX com facilidade</p>
+        <header class="text-left mb-8">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex-1">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-2">DB Backup Converter</h1>
+                    <p class="text-gray-600">Converta arquivos .bak para XLSX com facilidade</p>
+                </div>
+                <div class="ml-4">
+                    <button id="windows-guide" class="bg-blue-500 text-white px-3 py-2 rounded-lg hover:bg-blue-600 transition-colors text-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        Guia Windows
+                    </button>
+                </div>
+            </div>
         </header>
 
         <!-- Main Content -->
@@ -19,14 +31,14 @@
             <!-- File Selection -->
             <section id="file-section" class="mb-8">
                 <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-primary transition-colors">
-                    <div class="mb-4">
+                    <div class="mb-4 pointer-events-none">
                         <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
                             <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                         </svg>
                     </div>
-                    <h3 class="text-lg font-medium text-gray-900 mb-2">Selecionar arquivo .bak</h3>
-                    <p class="text-gray-500 mb-4">Clique para escolher o arquivo de backup do banco de dados</p>
-                    <button id="select-file" class="bg-primary text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+                    <h3 class="text-lg font-medium text-gray-900 mb-2 pointer-events-none">Selecionar arquivo .bak</h3>
+                    <p class="text-gray-500 mb-4 pointer-events-none">Clique para escolher o arquivo de backup do banco de dados</p>
+                    <button id="select-file" type="button" class="bg-primary text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">
                         Escolher Arquivo
                     </button>
                     <div id="file-info" class="hidden mt-4 p-4 bg-gray-50 rounded-lg">
@@ -34,6 +46,19 @@
                             <span class="font-medium">Arquivo selecionado:</span>
                             <span id="file-name" class="text-gray-900"></span>
                         </p>
+                    </div>
+                </div>
+                
+                <!-- Previous Exports Section -->
+                <div id="previous-exports-section" class="hidden mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h4 class="text-sm font-medium text-blue-900">Conversões Anteriores</h4>
+                            <p class="text-sm text-blue-700">Você possui backups convertidos anteriormente</p>
+                        </div>
+                        <button id="open-exports-folder" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm">
+                            Abrir Pasta de Exports
+                        </button>
                     </div>
                 </div>
             </section>

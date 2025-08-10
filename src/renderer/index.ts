@@ -1,56 +1,134 @@
 import { ConversionProgress, ConversionResult, ExportOptions } from '../types';
 import './styles.css';
 
+// Variável global para evitar múltiplas execuções do script
 declare global {
   interface Window {
     electronAPI: {
       selectBakFile(): Promise<string | null>;
       convertFile(filePath: string, options: ExportOptions): Promise<ConversionResult>;
-      openOutputFolder(outputPath: string): Promise<void>;
       onConversionProgress(callback: (progress: ConversionProgress) => void): () => void;
+      openOutputFolder(outputPath: string): Promise<void>;
+      openExportsFolder(): Promise<void>;
+      checkPreviousExports(): Promise<boolean>;
+      openWindowsGuide(): Promise<void>;
     };
+    appControllerInstance: AppController | undefined; // Nova proteção global
   }
 }
 
 class AppController {
   private selectedFilePath: string | null = null;
   private progressUnsubscribe: (() => void) | null = null;
+  private isSelectingFile: boolean = false;
+  private isConverting: boolean = false;
 
   constructor() {
+    // Verificar se já existe uma instância global
+    if (window.appControllerInstance) {
+      return window.appControllerInstance;
+    }
+    
+    
+    // Armazenar na variável global
+    window.appControllerInstance = this;
     this.initializeEventListeners();
   }
 
+  public static getInstance(): AppController {
+    if (window.appControllerInstance) {
+      return window.appControllerInstance;
+    }
+    
+    return new AppController();
+  }
+
   private initializeEventListeners(): void {
-    // File selection
+    // File selection com debounce
     const selectFileBtn = document.getElementById('select-file') as HTMLButtonElement;
-    selectFileBtn?.addEventListener('click', () => this.handleFileSelection());
+    if (selectFileBtn) {
+      let lastClickTime = 0;
+      selectFileBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const now = Date.now();
+        if (now - lastClickTime < 1000) {
+          return;
+        }
+        lastClickTime = now;
+        
+        this.handleFileSelection();
+      });
+    }
 
     // Conversion start
     const startConversionBtn = document.getElementById('start-conversion') as HTMLButtonElement;
-    startConversionBtn?.addEventListener('click', () => this.handleConversionStart());
+    if (startConversionBtn) {
+      startConversionBtn.addEventListener('click', () => this.handleConversionStart());
+    }
 
     // Results actions
     const openFolderBtn = document.getElementById('open-folder') as HTMLButtonElement;
-    openFolderBtn?.addEventListener('click', () => this.handleOpenFolder());
+    if (openFolderBtn) {
+      openFolderBtn.addEventListener('click', () => this.handleOpenFolder());
+    }
 
     const convertAnotherBtn = document.getElementById('convert-another') as HTMLButtonElement;
-    convertAnotherBtn?.addEventListener('click', () => this.resetInterface());
+    if (convertAnotherBtn) {
+      convertAnotherBtn.addEventListener('click', () => this.resetInterface());
+    }
 
     const retryBtn = document.getElementById('retry-conversion') as HTMLButtonElement;
-    retryBtn?.addEventListener('click', () => this.handleConversionStart());
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => this.handleConversionStart());
+    }
+
+    // Open exports folder button
+    const openExportsFolderBtn = document.getElementById('open-exports-folder') as HTMLButtonElement;
+    if (openExportsFolderBtn) {
+      openExportsFolderBtn.addEventListener('click', () => this.handleOpenExportsFolder());
+    }
+
+    // Windows guide button
+    const windowsGuideBtn = document.getElementById('windows-guide') as HTMLButtonElement;
+    if (windowsGuideBtn) {
+      windowsGuideBtn.addEventListener('click', () => this.handleOpenWindowsGuide());
+    }
+
+    // Check for previous exports on load
+    this.checkForPreviousExports();
   }
 
   private async handleFileSelection(): Promise<void> {
+    // Prevenir múltiplas chamadas simultâneas
+    if (this.isSelectingFile) {
+      return;
+    }
+    
+    this.isSelectingFile = true;
+    
     try {
       const filePath = await window.electronAPI.selectBakFile();
       
-      if (filePath) {
+      if (filePath && typeof filePath === 'string' && filePath.trim() !== '') {
         this.selectedFilePath = filePath;
+        
+        // Verificação imediata
+        setTimeout(() => {
+        }, 100);
+        
         this.showFileInfo(filePath);
         this.showConversionSection();
+      } else {
       }
     } catch (error) {
       this.showError('Erro ao selecionar arquivo', error);
+    } finally {
+      // Aguardar um pouco antes de permitir nova seleção
+      setTimeout(() => {
+        this.isSelectingFile = false;
+      }, 500);
     }
   }
 
@@ -59,8 +137,13 @@ class AppController {
     const fileName = document.getElementById('file-name');
     
     if (fileInfo && fileName) {
-      fileName.textContent = filePath.split('/').pop() || filePath;
+      // Usar separador compatível com Windows e Linux
+      const pathSeparator = filePath.includes('\\') ? '\\' : '/';
+      const fileNameOnly = filePath.split(pathSeparator).pop() || filePath;
+      fileName.textContent = fileNameOnly;
       fileInfo.classList.remove('hidden');
+      
+      // Debug log
     }
   }
 
@@ -70,13 +153,38 @@ class AppController {
   }
 
   private async handleConversionStart(): Promise<void> {
-    if (!this.selectedFilePath) {
+    
+    // Verificar se já está convertendo
+    if (this.isConverting) {
+      return;
+    }
+    
+    // Validação mais robusta
+    const isValidFilePath = this.selectedFilePath && 
+                           typeof this.selectedFilePath === 'string' && 
+                           this.selectedFilePath.trim().length > 0 &&
+                           this.selectedFilePath.endsWith('.bak');
+    
+    
+    if (!isValidFilePath) {
+      console.error('ERRO: selectedFilePath inválido:', {
+        value: this.selectedFilePath,
+        type: typeof this.selectedFilePath,
+        isNull: this.selectedFilePath == null,
+        isEmpty: this.selectedFilePath === '',
+        isBakFile: this.selectedFilePath?.endsWith?.('.bak')
+      });
       this.showError('Nenhum arquivo selecionado', 'Selecione um arquivo .bak antes de iniciar a conversão');
       return;
     }
 
+
+    // Marcar como em conversão
+    this.isConverting = true;
+    
     try {
       const options = this.getExportOptions();
+      
       this.showProgressSection();
       this.hideResults();
       
@@ -85,7 +193,7 @@ class AppController {
         (progress) => this.updateProgress(progress)
       );
 
-      const result = await window.electronAPI.convertFile(this.selectedFilePath, options);
+      const result = await window.electronAPI.convertFile(this.selectedFilePath!, options);
       
       // Unsubscribe from progress updates
       if (this.progressUnsubscribe) {
@@ -96,8 +204,12 @@ class AppController {
       this.handleConversionResult(result);
       
     } catch (error) {
+      console.error('Erro durante conversão:', error);
       this.showError('Erro durante a conversão', error);
       this.hideProgress();
+    } finally {
+      // Sempre limpar a flag no final
+      this.isConverting = false;
     }
   }
 
@@ -221,6 +333,36 @@ class AppController {
     }
   }
 
+
+  private async handleOpenExportsFolder(): Promise<void> {
+    try {
+      await window.electronAPI.openExportsFolder();
+    } catch (error) {
+      this.showError('Erro ao abrir pasta de exports', error);
+    }
+  }
+
+  private async handleOpenWindowsGuide(): Promise<void> {
+    try {
+      await window.electronAPI.openWindowsGuide();
+    } catch (error) {
+      this.showError('Erro ao abrir guia do Windows', error);
+    }
+  }
+
+  private async checkForPreviousExports(): Promise<void> {
+    try {
+      const hasPreviousExports = await window.electronAPI.checkPreviousExports();
+      const previousExportsSection = document.getElementById('previous-exports-section');
+      
+      if (hasPreviousExports && previousExportsSection) {
+        previousExportsSection.classList.remove('hidden');
+      }
+    } catch (error) {
+      console.error('Erro ao verificar exports anteriores:', error);
+    }
+  }
+
   private resetInterface(): void {
     // Reset file selection
     this.selectedFilePath = null;
@@ -248,6 +390,20 @@ class AppController {
 }
 
 // Initialize app when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-  new AppController();
-}); 
+let appInitialized = false;
+
+function initializeApp() {
+  if (appInitialized) {
+    return;
+  }
+  
+  appInitialized = true;
+  AppController.getInstance();
+}
+
+// Remover múltiplas inicializações - usar apenas uma abordagem
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeApp, { once: true });
+} else {
+  initializeApp();
+} 

@@ -4,14 +4,29 @@ import * as XLSX from 'xlsx';
 import { ExportOptions, TableData } from '../types';
 
 export class FileExporter {
-  async export(tables: TableData[], options: ExportOptions): Promise<string> {
-    const outputDir = path.join(process.cwd(), 'exports');
+  async export(tables: TableData[], options: ExportOptions, bakFilePath?: string): Promise<string> {
+    // Criar pasta base exports se não existir
+    const exportsBaseDir = path.join(process.cwd(), 'exports');
+    await this.ensureDirectoryExists(exportsBaseDir);
+    
+    // Criar subpasta com timestamp e nome do arquivo bak (se fornecido)
+    const timestamp = this.getTimestamp();
+    let folderName = `backup_${timestamp}`;
+    
+    if (bakFilePath) {
+      const bakFileName = path.basename(bakFilePath, '.bak');
+      // Sanitizar nome do arquivo para uso como nome de pasta
+      const sanitizedName = bakFileName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      folderName = `${sanitizedName}_${timestamp}`;
+    }
+    
+    const outputDir = path.join(exportsBaseDir, folderName);
     await this.ensureDirectoryExists(outputDir);
     
     console.log(`Exportando ${tables.length} tabelas para: ${outputDir}`);
     console.log(`Formato: XLSX (arquivos individuais)`);
     
-    // Sempre exportar individualmente diretamente na pasta exports
+    // Sempre exportar individualmente na pasta específica da conversão
     return this.exportIndividuallyToRoot(tables, options, outputDir);
   }
 
@@ -121,8 +136,14 @@ export class FileExporter {
 
   private getTimestamp(): string {
     const now = new Date();
-    return now.toISOString().replace(/[:.]/g, '-').split('T')[0] + '_' + 
-           now.toTimeString().split(' ')[0].replace(/:/g, '-');
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    
+    return `${year}${month}${day}_${hours}${minutes}${seconds}`;
   }
 
   private async ensureDirectoryExists(dir: string): Promise<void> {

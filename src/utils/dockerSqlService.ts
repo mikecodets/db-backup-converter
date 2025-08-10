@@ -1,11 +1,20 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import { ConversionProgress, TableData } from '../types';
+import { PlatformUtils } from '../utils/platformUtils';
 
 export class DockerSqlService {
   private readonly CONTAINER_NAME = 'db-backup-converter-sql';
   private readonly SQL_PASSWORD = 'DbConverter123!';
   private readonly DATABASE_NAME = 'RestoreDB';
+  private readonly SQL_PORT = 1431;
+
+  private getSpawnOptions(): any {
+    return {
+      stdio: 'pipe',
+      shell: PlatformUtils.isWindows()
+    };
+  }
 
   async convertBakFile(
     filePath: string,
@@ -140,21 +149,12 @@ export class DockerSqlService {
   }
 
   private async checkDocker(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const dockerCheck = spawn('docker', ['--version'], { stdio: 'pipe' });
-      
-      dockerCheck.on('close', (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error('Docker não está instalado ou não está funcionando. Por favor, instale o Docker Desktop.'));
-        }
-      });
-
-      dockerCheck.on('error', () => {
-        reject(new Error('Docker não encontrado. Por favor, instale o Docker Desktop.'));
-      });
-    });
+    try {
+      // Usar PlatformUtils para garantir que Docker está pronto
+      await PlatformUtils.ensureDockerReady();
+    } catch (error) {
+      throw new Error(`Docker não está disponível: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
   }
 
   private async startSqlContainer(): Promise<void> {
@@ -169,7 +169,8 @@ export class DockerSqlService {
         '-e', `SA_PASSWORD=${this.SQL_PASSWORD}`,
         '-e', 'MSSQL_PID=Express', // Usar SQL Server Express (mais leve)
         '-e', 'MSSQL_MEMORY_LIMIT_MB=1024', // Limitar memória SQL Server
-        '-p', '1433:1433',
+        '-e', `MSSQL_TCP_PORT=${this.SQL_PORT}`,
+        '-p', `${this.SQL_PORT}:${this.SQL_PORT}`,
         '--memory=2g', // Limitar memória container
         '--cpus=2',    // Limitar CPU
         '--shm-size=256m', // Memória compartilhada
@@ -178,7 +179,7 @@ export class DockerSqlService {
 
       console.log('Iniciando container SQL Server...');
       console.log('Primeira execução pode demorar mais (download da imagem)...');
-      const dockerRun = spawn('docker', dockerArgs, { stdio: 'pipe' });
+      const dockerRun = spawn('docker', dockerArgs, this.getSpawnOptions());
 
       let output = '';
       let errorOutput = '';
@@ -218,14 +219,15 @@ export class DockerSqlService {
     // Verificar se container está realmente rodando
     await this.checkContainerHealth();
     
-    // Aguardar um pouco mais antes de começar a testar
+    // Aguardar mais tempo para SQL Server inicializar completamente
     console.log('Container verificado, aguardando SQL Server inicializar...');
-    await this.sleep(10000); // 10 segundos
+    console.log('Aguardando 30 segundos para garantir inicialização completa...');
+    await this.sleep(30000); // 30 segundos para garantir
     
     // Tentativas com backoff exponencial
     for (let i = 0; i < 60; i++) { // Reduzir para 60 tentativas de 2s cada = 2 minutos
       try {
-        await this.executeSqlCommand('SELECT 1');
+        await this.executeSqlCommand('SELECT 1', 3);
         console.log('SQL Server está pronto!');
         return;
       } catch (error) {
@@ -264,10 +266,13 @@ export class DockerSqlService {
   private async copyBakToContainer(filePath: string): Promise<void> {
     const fileName = path.basename(filePath);
     
+    // Converter caminho para formato Docker se estiver no Windows
+    const sourcePath = PlatformUtils.isWindows() ? filePath : filePath;
+    
     return new Promise((resolve, reject) => {
       const dockerCp = spawn('docker', [
-        'cp', filePath, `${this.CONTAINER_NAME}:/var/opt/mssql/data/${fileName}`
-      ], { stdio: 'pipe' });
+        'cp', sourcePath, `${this.CONTAINER_NAME}:/var/opt/mssql/data/${fileName}`
+      ], { stdio: 'pipe', shell: PlatformUtils.isWindows() });
 
       dockerCp.on('close', (code) => {
         if (code === 0) {
@@ -638,23 +643,31 @@ export class DockerSqlService {
     return 0;
   }
 
-  private async executeSqlCommand(query: string): Promise<string> {
+  private async executeSqlCommand(query: string, timeoutSeconds: number = 5): Promise<string> {
     return new Promise((resolve, reject) => {
       // Forçar formato amigável ao parser: TSV, sem espaços extras, sem "(N rows affected)"
       const wrappedQuery = `SET NOCOUNT ON; ${query}`;
+      
+      // Log detalhado para debug
+      console.log(`[DEBUG] Executando comando SQL:`);
+      console.log(`[DEBUG] Query: ${query}`);
+      console.log(`[DEBUG] Servidor: localhost,${this.SQL_PORT}`);
+      console.log(`[DEBUG] Container: ${this.CONTAINER_NAME}`);
+      
       const sqlcmd = spawn('docker', [
         'exec', this.CONTAINER_NAME,
         '/opt/mssql-tools18/bin/sqlcmd', 
-        '-S', 'localhost',
+        '-S', `localhost,${this.SQL_PORT}`,
         '-U', 'sa', 
         '-P', this.SQL_PASSWORD,
         '-C', // Trust server certificate
+        '-l', String(timeoutSeconds), // timeout configurável
         '-s', '\t', // separador TAB
-        '-W',        // remove espaços em branco extras
-        '-y', '0',   // largura ilimitada para colunas (evita truncar JSON)
+        '-W',        // remove espaços em branco extras (mantemos só este)
+        // Removido -y pois conflita com -W
         // Mantemos cabeçalhos para o parser identificar colunas
         '-Q', wrappedQuery
-      ], { stdio: 'pipe' });
+      ], this.getSpawnOptions());
 
       let output = '';
       let errorOutput = '';
@@ -669,8 +682,11 @@ export class DockerSqlService {
 
       sqlcmd.on('close', (code) => {
         if (code === 0) {
+          console.log(`[DEBUG] SQL Command sucesso!`);
           resolve(output);
         } else {
+          console.log(`[DEBUG] SQL Command falhou com código ${code}`);
+          console.log(`[DEBUG] Erro: ${errorOutput}`);
           reject(new Error(`SQL Command failed: ${errorOutput}`));
         }
       });
@@ -681,13 +697,13 @@ export class DockerSqlService {
     try {
       // Parar container
       await new Promise<void>((resolve) => {
-        const stopCmd = spawn('docker', ['stop', this.CONTAINER_NAME], { stdio: 'pipe' });
+        const stopCmd = spawn('docker', ['stop', this.CONTAINER_NAME], this.getSpawnOptions());
         stopCmd.on('close', () => resolve());
       });
 
       // Remover container
       await new Promise<void>((resolve) => {
-        const rmCmd = spawn('docker', ['rm', this.CONTAINER_NAME], { stdio: 'pipe' });
+        const rmCmd = spawn('docker', ['rm', this.CONTAINER_NAME], this.getSpawnOptions());
         rmCmd.on('close', () => resolve());
       });
 
@@ -699,7 +715,7 @@ export class DockerSqlService {
 
   private async checkContainerHealth(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const inspectCmd = spawn('docker', ['inspect', this.CONTAINER_NAME, '--format', '{{.State.Status}}'], { stdio: 'pipe' });
+      const inspectCmd = spawn('docker', ['inspect', this.CONTAINER_NAME, '--format', '{{.State.Status}}'], this.getSpawnOptions());
       
       let output = '';
       inspectCmd.stdout.on('data', (data) => {
@@ -749,7 +765,7 @@ export class DockerSqlService {
 
   private async runDockerCommand(args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-      const dockerCmd = spawn('docker', args, { stdio: 'pipe' });
+      const dockerCmd = spawn('docker', args, this.getSpawnOptions());
       
       let output = '';
       let errorOutput = '';

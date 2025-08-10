@@ -1,8 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import * as fs from 'fs';
 import * as path from 'path';
 import { ConversionProgress, ConversionResult, ExportOptions } from '../types';
 import { BakParser } from '../utils/bakParser';
 import { FileExporter } from '../utils/fileExporter';
+import { DockerInstaller } from './dockerInstaller';
 
 let mainWindow: BrowserWindow;
 
@@ -43,13 +45,29 @@ app.on('activate', () => {
 });
 
 // IPC Handlers
+let isDialogOpen = false;
+
 ipcMain.handle('select-bak-file', async (): Promise<string | null> => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
-    filters: [{ name: 'Backup Files', extensions: ['bak'] }],
-  });
+  // Prevenir múltiplos diálogos
+  if (isDialogOpen) {
+    return null;
+  }
   
-  return result.canceled ? null : result.filePaths[0];
+  isDialogOpen = true;
+  
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'Backup Files', extensions: ['bak'] }],
+    });
+    
+    return result.canceled ? null : result.filePaths[0];
+  } finally {
+    // Aguardar um pouco antes de permitir novo diálogo
+    setTimeout(() => {
+      isDialogOpen = false;
+    }, 500);
+  }
 });
 
 ipcMain.handle('convert-file', async (
@@ -58,6 +76,16 @@ ipcMain.handle('convert-file', async (
   options: ExportOptions
 ): Promise<ConversionResult> => {
   try {
+    // Verificar Docker antes de iniciar conversão
+    const dockerReady = await DockerInstaller.checkAndInstall(mainWindow);
+    if (!dockerReady) {
+      return {
+        success: false,
+        message: 'Docker Desktop não está disponível',
+        error: 'O Docker Desktop é necessário para converter arquivos .bak. Por favor, instale ou inicie o Docker Desktop e tente novamente.',
+      };
+    }
+
     const parser = new BakParser();
     const exporter = new FileExporter();
     
@@ -67,7 +95,7 @@ ipcMain.handle('convert-file', async (
     };
     
     const tables = await parser.parse(filePath, onProgress);
-    const outputPath = await exporter.export(tables, options);
+    const outputPath = await exporter.export(tables, options, filePath);
     
     return {
       success: true,
@@ -89,5 +117,46 @@ ipcMain.handle('open-output-folder', async (event, outputPath: string) => {
   } catch (error) {
     // Fallback para abrir a pasta diretamente
     await shell.openPath(path.dirname(outputPath));
+  }
+});
+
+ipcMain.handle('open-exports-folder', async () => {
+  try {
+    const exportsPath = path.join(process.cwd(), 'exports');
+    await shell.openPath(exportsPath);
+  } catch (error) {
+    console.error('Erro ao abrir pasta de exports:', error);
+  }
+});
+
+ipcMain.handle('check-previous-exports', async (): Promise<boolean> => {
+  try {
+    const exportsPath = path.join(process.cwd(), 'exports');
+    
+    if (!fs.existsSync(exportsPath)) {
+      return false;
+    }
+    
+    const files = fs.readdirSync(exportsPath);
+    // Verificar se há pelo menos uma pasta de backup
+    const hasBackupFolders = files.some(file => {
+      const fullPath = path.join(exportsPath, file);
+      return fs.statSync(fullPath).isDirectory();
+    });
+    
+    return hasBackupFolders;
+  } catch (error) {
+    console.error('Erro ao verificar exports anteriores:', error);
+    return false;
+  }
+});
+
+ipcMain.handle('open-windows-guide', async () => {
+  try {
+    const guidePath = path.join(process.cwd(), 'WINDOWS_GUIDE.md');
+    await shell.openPath(guidePath);
+  } catch (error) {
+    console.error('Erro ao abrir guia do Windows:', error);
+    throw error;
   }
 }); 
