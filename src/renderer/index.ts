@@ -12,6 +12,8 @@ declare global {
       openExportsFolder(): Promise<void>;
       checkPreviousExports(): Promise<boolean>;
       openWindowsGuide(): Promise<void>;
+      getCurrentLogPath(): Promise<string | null>;
+      saveLogAs(): Promise<string | null>;
     };
     appControllerInstance: AppController | undefined; // Nova proteção global
   }
@@ -33,6 +35,14 @@ class AppController {
     // Armazenar na variável global
     window.appControllerInstance = this;
     this.initializeEventListeners();
+
+    // Capturar erros não tratados no renderer
+    window.addEventListener('error', (e) => {
+      console.error('RendererError:', e.error || e.message);
+    });
+    window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
+      console.error('RendererUnhandledRejection:', e.reason);
+    });
   }
 
   public static getInstance(): AppController {
@@ -84,6 +94,11 @@ class AppController {
       retryBtn.addEventListener('click', () => this.handleConversionStart());
     }
 
+    const downloadLogBtn = document.getElementById('download-log') as HTMLButtonElement;
+    if (downloadLogBtn) {
+      downloadLogBtn.addEventListener('click', () => this.handleDownloadLog());
+    }
+
     // Open exports folder button
     const openExportsFolderBtn = document.getElementById('open-exports-folder') as HTMLButtonElement;
     if (openExportsFolderBtn) {
@@ -98,6 +113,20 @@ class AppController {
 
     // Check for previous exports on load
     this.checkForPreviousExports();
+  }
+
+  private async handleDownloadLog(): Promise<void> {
+    try {
+      const saved = await window.electronAPI.saveLogAs();
+      if (!saved) {
+        const logPath = await window.electronAPI.getCurrentLogPath();
+        if (!logPath) {
+          this.showError('Log indisponível', 'Nenhum log encontrado nesta sessão.');
+        }
+      }
+    } catch (error) {
+      this.showError('Erro ao salvar log', error);
+    }
   }
 
   private async handleFileSelection(): Promise<void> {

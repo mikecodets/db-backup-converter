@@ -4,6 +4,7 @@ import * as path from 'path';
 import { ConversionProgress, ConversionResult, ExportOptions } from '../types';
 import { BakParser } from '../utils/bakParser';
 import { FileExporter } from '../utils/fileExporter';
+import { Logger } from '../utils/logger';
 import { DockerInstaller } from './dockerInstaller';
 
 let mainWindow: BrowserWindow;
@@ -30,6 +31,10 @@ function createWindow(): void {
   });
 }
 
+// Initialize logger as soon as possible
+Logger.initialize();
+Logger.startSection('App Lifecycle');
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
@@ -42,6 +47,14 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+// Global error handlers
+process.on('uncaughtException', (err) => {
+  Logger.error(err, 'uncaughtException');
+});
+process.on('unhandledRejection', (reason: any) => {
+  Logger.error(reason instanceof Error ? reason : new Error(String(reason)), 'unhandledRejection');
 });
 
 // IPC Handlers
@@ -75,7 +88,9 @@ ipcMain.handle('convert-file', async (
   filePath: string,
   options: ExportOptions
 ): Promise<ConversionResult> => {
+  const log = Logger.withContext('convert-file');
   try {
+    log.info('Iniciando conversão', { filePath, options });
     // Verificar Docker antes de iniciar conversão
     const dockerReady = await DockerInstaller.checkAndInstall(mainWindow);
     if (!dockerReady) {
@@ -92,17 +107,20 @@ ipcMain.handle('convert-file', async (
     // Progress callback
     const onProgress = (progress: ConversionProgress) => {
       event.sender.send('conversion-progress', progress);
+      Logger.info('progress', progress, 'conversion-progress');
     };
     
     const tables = await parser.parse(filePath, onProgress);
     const outputPath = await exporter.export(tables, options, filePath);
     
+    log.info('Conversão concluída', { outputPath, tables: tables.length });
     return {
       success: true,
       message: 'Conversão concluída com sucesso!',
       outputPath,
     };
   } catch (error) {
+    log.error(error);
     return {
       success: false,
       message: 'Erro durante a conversão',
@@ -159,4 +177,25 @@ ipcMain.handle('open-windows-guide', async () => {
     console.error('Erro ao abrir guia do Windows:', error);
     throw error;
   }
+});
+
+// Logging related IPC
+ipcMain.handle('get-current-log-path', async () => {
+  return Logger.getCurrentLogPath();
+});
+
+ipcMain.handle('save-log-as', async () => {
+  const currentLog = Logger.getCurrentLogPath();
+  if (!currentLog || !fs.existsSync(currentLog)) {
+    return null;
+  }
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Salvar log',
+    defaultPath: path.basename(currentLog),
+    filters: [{ name: 'Log Files', extensions: ['log', 'txt'] }],
+  });
+  if (result.canceled || !result.filePath) return null;
+
+  await fs.promises.copyFile(currentLog, result.filePath);
+  return result.filePath;
 }); 

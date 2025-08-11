@@ -1,13 +1,14 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import { ConversionProgress, TableData } from '../types';
+import { Logger } from '../utils/logger';
 import { PlatformUtils } from '../utils/platformUtils';
 
 export class DockerSqlService {
   private readonly CONTAINER_NAME = 'db-backup-converter-sql';
   private readonly SQL_PASSWORD = 'DbConverter123!';
   private readonly DATABASE_NAME = 'RestoreDB';
-  private readonly SQL_PORT = 1431;
+  private readonly SQL_PORT = 1433;
 
   private getSpawnOptions(): any {
     return {
@@ -21,10 +22,8 @@ export class DockerSqlService {
     outputDir: string,
     onProgress?: (progress: ConversionProgress) => void
   ): Promise<TableData[]> {
-    console.log('🚀 =========================');
-    console.log('🚀 INICIANDO CONVERSÃO DOCKER');
-    console.log('🚀 =========================');
-    console.log('📁 Arquivo:', filePath);
+    const log = Logger.withContext('DockerSqlService');
+    log.info('INICIANDO CONVERSÃO DOCKER', { filePath, outputDir });
     
     try {
       // 1. Verificar se Docker está disponível
@@ -79,15 +78,13 @@ export class DockerSqlService {
       }
 
       // 6. Listar todas as tabelas
-      console.log('🔍 Chamando listTables()...');
+      log.info('Chamando listTables()...');
       let tableNames: string[];
       try {
         tableNames = await this.listTables();
-        console.log(`🎯 listTables() retornou: ${tableNames.length} tabelas`);
-        console.log(`📋 Nomes das tabelas:`, tableNames);
-        console.log(`Encontradas ${tableNames.length} tabelas`);
+        log.info('listTables() retornou', { count: tableNames.length, names: tableNames });
       } catch (error) {
-        console.error('❌ Erro em listTables():', error);
+        log.error(error, { step: 'listTables' });
         throw error;
       }
 
@@ -116,11 +113,10 @@ export class DockerSqlService {
 
         try {
           const tableData = await this.extractTableData(tableName);
-          // SEMPRE ADICIONAR TABELA, MESMO COM 0 REGISTROS
           tables.push(tableData);
-          console.log(`${tableName}: ${tableData.rows.length} registros extraídos`);
+          log.info('Tabela extraída', { tableName, rows: tableData.rows.length });
         } catch (error) {
-          console.warn(`Erro ao extrair ${tableName}:`, error);
+          Logger.warn(`Erro ao extrair ${tableName}`, error, 'DockerSqlService');
         }
       }
 
@@ -133,18 +129,15 @@ export class DockerSqlService {
         });
       }
 
-      console.log('🎉 =========================');
-      console.log('🎉 CONVERSÃO CONCLUÍDA!');
-      console.log('🎉 =========================');
-      console.log(`📊 Total de tabelas: ${tables.length}`);
+      log.info('CONVERSÃO CONCLUÍDA', { totalTables: tables.length });
       
       return tables;
 
     } finally {
       // 8. Sempre limpar container
-      console.log('🧹 Limpando container...');
+      Logger.info('Limpando container...', undefined, 'DockerSqlService');
       await this.cleanupContainer();
-      console.log('✅ Container limpo');
+      Logger.info('Container limpo', undefined, 'DockerSqlService');
     }
   }
 
@@ -170,7 +163,7 @@ export class DockerSqlService {
         '-e', 'MSSQL_PID=Express', // Usar SQL Server Express (mais leve)
         '-e', 'MSSQL_MEMORY_LIMIT_MB=1024', // Limitar memória SQL Server
         '-e', `MSSQL_TCP_PORT=${this.SQL_PORT}`,
-        '-p', `${this.SQL_PORT}:${this.SQL_PORT}`,
+        '-p', `${this.SQL_PORT}:1433`, // expõe porta padrão 1433 no host
         '--memory=2g', // Limitar memória container
         '--cpus=2',    // Limitar CPU
         '--shm-size=256m', // Memória compartilhada
@@ -645,8 +638,9 @@ export class DockerSqlService {
 
   private async executeSqlCommand(query: string, timeoutSeconds: number = 5): Promise<string> {
     return new Promise((resolve, reject) => {
-      // Forçar formato amigável ao parser: TSV, sem espaços extras, sem "(N rows affected)"
-      const wrappedQuery = `SET NOCOUNT ON; ${query}`;
+      // Formato amigável ao parser: TSV via -s e remoção de espaços via -W
+      // Importante: evitamos "SET NOCOUNT ON" porque no Windows o docker exec + sqlcmd pode quebrar o parsing de argumentos
+      const wrappedQuery = query;
       
       // Log detalhado para debug
       console.log(`[DEBUG] Executando comando SQL:`);
@@ -664,7 +658,6 @@ export class DockerSqlService {
         '-l', String(timeoutSeconds), // timeout configurável
         '-s', '\t', // separador TAB
         '-W',        // remove espaços em branco extras (mantemos só este)
-        // Removido -y pois conflita com -W
         // Mantemos cabeçalhos para o parser identificar colunas
         '-Q', wrappedQuery
       ], this.getSpawnOptions());
@@ -715,7 +708,7 @@ export class DockerSqlService {
 
   private async checkContainerHealth(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const inspectCmd = spawn('docker', ['inspect', this.CONTAINER_NAME, '--format', '{{.State.Status}}'], this.getSpawnOptions());
+      const inspectCmd = spawn('docker', ['inspect', this.CONTAINER_NAME, '--format={{.State.Status}}'], this.getSpawnOptions());
       
       let output = '';
       inspectCmd.stdout.on('data', (data) => {
@@ -753,7 +746,7 @@ export class DockerSqlService {
       
       // 3. Recursos do sistema
       console.log('3. Verificando recursos...');
-      const statsResult = await this.runDockerCommand(['stats', '--no-stream', '--format', 'table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}', this.CONTAINER_NAME]);
+      const statsResult = await this.runDockerCommand(['stats', '--no-stream', `--format=table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}`, this.CONTAINER_NAME]);
       console.log(statsResult);
       
     } catch (error) {

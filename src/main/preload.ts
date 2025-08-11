@@ -15,4 +15,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExportsFolder: (): Promise<void> => ipcRenderer.invoke('open-exports-folder'),
   checkPreviousExports: (): Promise<boolean> => ipcRenderer.invoke('check-previous-exports'),
   openWindowsGuide: (): Promise<void> => ipcRenderer.invoke('open-windows-guide'),
+  getCurrentLogPath: (): Promise<string | null> => ipcRenderer.invoke('get-current-log-path'),
+  saveLogAs: (): Promise<string | null> => ipcRenderer.invoke('save-log-as'),
 }); 

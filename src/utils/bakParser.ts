@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { ConversionProgress, TableData } from '../types';
 import { DockerSqlService } from './dockerSqlService';
+import { Logger } from './logger';
 
 export class BakParser {
   private dockerSqlService = new DockerSqlService();
@@ -9,17 +10,19 @@ export class BakParser {
     filePath: string,
     onProgress?: (progress: ConversionProgress) => void
   ): Promise<TableData[]> {
-    console.log('Iniciando conversão do arquivo .bak...');
+    Logger.info('Iniciando conversão do arquivo .bak...', { filePath }, 'BakParser');
     
     // Verificar se arquivo existe
     if (!fs.existsSync(filePath)) {
-      throw new Error(`Arquivo não encontrado: ${filePath}`);
+      const err = new Error(`Arquivo não encontrado: ${filePath}`);
+      Logger.error(err, 'BakParser');
+      throw err;
     }
 
     // Verificar tamanho do arquivo
     const stats = fs.statSync(filePath);
     const fileSizeMB = stats.size / (1024 * 1024);
-    console.log(`Tamanho do arquivo: ${fileSizeMB.toFixed(2)} MB`);
+    Logger.info(`Tamanho do arquivo: ${fileSizeMB.toFixed(2)} MB`, undefined, 'BakParser');
 
     if (onProgress) {
       onProgress({
@@ -32,7 +35,7 @@ export class BakParser {
 
     // Tentar Docker + SQL Server primeiro
     try {
-      console.log('Tentativa 1: Docker + SQL Server...');
+      Logger.info('Tentativa 1: Docker + SQL Server...', undefined, 'BakParser');
       const outputDir = require('path').dirname(filePath);
       const tables = await this.dockerSqlService.convertBakFile(filePath, outputDir, onProgress);
 
@@ -40,11 +43,11 @@ export class BakParser {
         throw new Error('Nenhuma tabela foi encontrada no backup ou todas as tabelas estão vazias');
       }
 
-      console.log(`Conversão concluída com Docker: ${tables.length} tabelas extraídas`);
+      Logger.info(`Conversão concluída com Docker: ${tables.length} tabelas extraídas`, undefined, 'BakParser');
       return tables;
 
     } catch (dockerError) {
-      console.log('Docker falhou, tentando solução alternativa...');
+      Logger.warn('Docker falhou, tentando solução alternativa...', dockerError, 'BakParser');
       
       // Se Docker falhar, tentar solução alternativa
       if (onProgress) {
@@ -63,7 +66,9 @@ export class BakParser {
         const dockerMsg = dockerError instanceof Error ? dockerError.message : 'Erro Docker desconhecido';
         const fallbackMsg = fallbackError instanceof Error ? fallbackError.message : 'Erro fallback desconhecido';
         
-        throw new Error(`Todas as opções falharam:\n\n1. Docker + SQL Server:\n${dockerMsg}\n\n2. RebaseData (fallback):\n${fallbackMsg}\n\nSolução: Instale e inicie o Docker Desktop.`);
+        const combined = new Error(`Todas as opções falharam:\n\n1. Docker + SQL Server:\n${dockerMsg}\n\n2. RebaseData (fallback):\n${fallbackMsg}\n\nSolução: Instale e inicie o Docker Desktop.`);
+        Logger.error(combined, 'BakParser');
+        throw combined;
       }
     }
   }
@@ -72,14 +77,16 @@ export class BakParser {
     const { spawn } = require('child_process');
     const path = require('path');
     
-    console.log('Usando RebaseData como fallback...');
+    Logger.info('Usando RebaseData como fallback...', undefined, 'BakParser');
     
     // Verificar tamanho (RebaseData tem limite)
     const stats = fs.statSync(filePath);
     const fileSizeMB = stats.size / (1024 * 1024);
     
     if (fileSizeMB > 10) {
-      throw new Error(`Arquivo muito grande para fallback (${fileSizeMB.toFixed(2)}MB). RebaseData suporta apenas até 10MB. Use Docker + SQL Server.`);
+      const err = new Error(`Arquivo muito grande para fallback (${fileSizeMB.toFixed(2)}MB). RebaseData suporta apenas até 10MB. Use Docker + SQL Server.`);
+      Logger.error(err, 'BakParser');
+      throw err;
     }
 
     const outputDir = path.dirname(filePath);
@@ -138,12 +145,16 @@ export class BakParser {
         if (code === 0 && fs.existsSync(outputPath)) {
           resolve();
         } else {
-          reject(new Error(`RebaseData falhou: ${errorOutput}`));
+          const err = new Error(`RebaseData falhou: ${errorOutput}`);
+          Logger.error(err, 'BakParser');
+          reject(err);
         }
       });
 
       curlProcess.on('error', (error: Error) => {
-        reject(new Error(`Erro ao executar curl: ${error.message}`));
+        const err = new Error(`Erro ao executar curl: ${error.message}`);
+        Logger.error(err, 'BakParser');
+        reject(err);
       });
     });
   }
@@ -201,7 +212,7 @@ export class BakParser {
         rows: jsonData
       };
     } catch (error) {
-      console.error(`Erro ao ler XLSX ${filePath}:`, error);
+      Logger.error(`Erro ao ler XLSX ${filePath}: ${error}`, 'BakParser');
       return null;
     }
   }
